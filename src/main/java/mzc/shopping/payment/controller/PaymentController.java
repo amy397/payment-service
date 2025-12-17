@@ -1,4 +1,5 @@
 package mzc.shopping.payment.controller;
+import mzc.shopping.payment.dto.TossPaymentRequest;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,7 @@ public class PaymentController {
     @PostMapping
     public ResponseEntity<PaymentResponse> createPayment(@Valid @RequestBody PaymentRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(paymentService.createPayment(request));
+                .body(paymentService.confirmTossPayment(request));
     }
 
     @PostMapping("/{id}/confirm")
@@ -73,4 +74,12 @@ public class PaymentController {
     public ResponseEntity<String> health() {
         return ResponseEntity.ok("Payment Service is running");
     }
+
+    // 토스페이먼츠 결제 승인
+    @PostMapping("/confirm/toss")
+    public ResponseEntity<PaymentResponse> confirmTossPayment(
+            @RequestBody TossPaymentRequest request) {
+        return ResponseEntity.ok(paymentService.confirmTossPayemnt(request));
+    }
+
 }

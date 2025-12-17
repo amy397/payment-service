@@ -27,3 +27,7 @@ feign:
 service:
   order:
     url: http://localhost:8083
+
+
+toss:
+  secret-key: test_sk_ALnQvDd2VJPxEMRbQnZw8Mj7X41m

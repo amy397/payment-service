@@ -13,9 +13,17 @@ import mzc.shopping.payment.exception.PaymentNotFoundException;
 import mzc.shopping.payment.repository.PaymentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import mzc.shopping.payment.client.TossPaymentsClient;
+import mzc.shopping.payment.dto.TossPaymentRequest;
+import org.springframework.beans.factory.annotation.Value;
+import java.util.Base64;
+import java.util.Map;
+import java.util.HashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -24,9 +32,13 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderServiceClient orderServiceClient;
+    private final TossPaymentsClient tossPaymentsClient;
+    @Value("${toss.secret-key}")
+    private String tossSecretKey;
+
 
     @Transactional
-    public PaymentResponse createPayment(PaymentRequest request) {
+    public PaymentResponse confirmTossPayment(PaymentRequest request) {
         OrderResponse order = orderServiceClient.getOrder(request.getOrderId());
 
         if (paymentRepository.existsByOrderId(request.getOrderId())) {
@@ -109,4 +121,59 @@ public class PaymentService {
         return paymentRepository.findById(id)
                 .orElseThrow(() -> new PaymentNotFoundException("결제 ID " + id + "를 찾을 수 없습니다."));
     }
+
+    @Transactional
+    public PaymentResponse confirmTossPayemnt(TossPaymentRequest request) {
+
+        // 1. Authorization 헤더 생성
+        String encodedKey = Base64.getEncoder().encodeToString((tossSecretKey + ":").getBytes());
+        String authorization = "Basic " + encodedKey;
+        // 2. 요청 바디 생성
+        Map<String, Object> body = new HashMap<>();
+        body.put("paymentKey", request.getPaymentKey());
+        body.put("orderId", request.getOrderId());
+        body.put("amount", request.getAmount());
+
+
+        try {
+            // 3. Feign Client로 토스 API 호출
+            Map<String, Object> tossResponse = tossPaymentsClient.confirmPayment(authorization, body);
+
+            // 4. orderId에서 실제 주문 ID 추출 (ORDER_123_timestamp 형식)
+            String[] parts = request.getOrderId().split("_");
+            Long actualOrderId = Long.parseLong(parts[1]);
+
+            // 5. 결제 정보 DB 저장
+            Payment payment = Payment.builder()
+                    .orderId(actualOrderId)
+                    .userId(getOrderUserId(actualOrderId))
+                    .amount(new java.math.BigDecimal(request.getAmount()))
+                    .paymentMethod((String) tossResponse.get("method"))
+                    .status(PaymentStatus.COMPLETED)
+                    .paymentKey(request.getPaymentKey())
+                    .transactionId((String) tossResponse.get("transactionKey"))
+                    .build();
+
+            Payment saved = paymentRepository.save(payment);
+
+            // 6. 주문 상태 업데이트
+            orderServiceClient.updateOrderStatus(actualOrderId, "CONFIRMED");
+
+            return PaymentResponse.from(saved);
+
+        } catch (Exception e) {
+            throw new PaymentFailedException("토스페이먼츠 결제 승인 실패: " + e.getMessage());
+        }
+    }
+
+    // 주문에서 userId 가져오기
+    private Long getOrderUserId(Long orderId) {
+        try {
+            OrderResponse order = orderServiceClient.getOrder(orderId);
+            return order.getUserId();
+        } catch (Exception e) {
+            return 1L;
+        }
+    }
+
 }
