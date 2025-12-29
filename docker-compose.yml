@@ -13,7 +13,7 @@ services:
   payment-service:
     build: .
     ports:
-      - "8084:8084"
+      - "8085:8085"
     depends_on:
       - payment-db
     environment:
